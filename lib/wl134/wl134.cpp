@@ -1,17 +1,35 @@
 #include "wl134.h"
 
-void WL134::begin() {
-    Serial2.begin(baud_rate, SERIAL_8N1, rx_pin, tx_pin);
-    Serial2.setRxBufferSize(256); 
+bool WL134::begin(QueueHandle_t &uart_queue) {
+    uart_config_t uart_config = {
+        .baud_rate = baud_rate,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_APB,
+    };
+
+    uart_param_config(uart_num, &uart_config);
+    uart_set_pin(uart_num, tx_pin, rx_pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+
+    // Param 5: Tamaño de la cola (10 eventos)
+    // Param 6: Puntero donde guardar el handle de la cola (&uart_queue)
+    if (uart_driver_install(uart_num, BUF_SIZE * 2, 0, 10, &uart_queue, 0) != ESP_OK) {
+        return false;
+    }
+    
+    return true;
 }
 
 uint64_t WL134::read() {
-    if (Serial2.available() >= 30) {
-        int len = Serial2.readBytes(buffer, 30);
-        
-        if (len == 30) {
-            return parse(buffer);
-        }
+    size_t length = 0;
+    uart_get_buffered_data_len(uart_num, &length);
+    
+    int len = uart_read_bytes(uart_num, buffer, length, 100 / portTICK_PERIOD_MS);
+    
+    if (len >= 30) { 
+        return parse(buffer);
     }
     return 0;
 }
@@ -29,6 +47,13 @@ uint64_t WL134::parse(uint8_t* data) {
      * CHECKSUM INVERT  1 BYTE
      * END 0X03         1 BYTE
      */
+    
+    // Imprimo los bytes recibidos para debug
+    Serial.print("Datos recibidos: ");
+    for(int i = 0; i < 30; i++) {
+        Serial.printf("%02X ", data[i]);
+    }
+    Serial.println();
 
     if(data[0] != 0x02 || data[29] != 0x03)
         return 0;
@@ -40,11 +65,12 @@ uint64_t WL134::parse(uint8_t* data) {
     */
 
     uint64_t result = 0;
-    for(int i = 0; i < 10; i++) {
-        if(data[1 + i] >= 'A' && data[1 + i] <= 'F')
-            result = (result << 4) + (data[1 + i] - 'A' + 10);
-        else if(data[1 + i] >= '0' && data[1 + i] <= '9')
-            result = (result << 4) + (data[1 + i] - '0');
+    for(int i = 9; i >= 0; i--) {
+        uint8_t byte = data[1 + i];
+        if(byte >= 'A' && byte <= 'F')
+            result = (result << 4) + (byte - 'A' + 10);
+        else if(byte >= '0' && byte <= '9')
+            result = (result << 4) + (byte - '0');
         else
             return 0;
     }

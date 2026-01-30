@@ -2,19 +2,22 @@
 #define WL134_H
 
 #include <Arduino.h>
+#include <driver/uart.h>
 
 class WL134 {
 public:
-    void begin();
+    bool begin(QueueHandle_t &uart_queue);
 
     uint64_t read();
 
 private:
-    const int rx_pin = 16;
+    const uart_port_t uart_num = UART_NUM_2;
     const int tx_pin = 17;
-    const long baud_rate = 9600;
+    const int rx_pin = 16;
+    const int baud_rate = 9600;
     
-    uint8_t buffer[32]; 
+    static const int BUF_SIZE = 256;
+    uint8_t buffer[BUF_SIZE];
 
     uint64_t parse(uint8_t* data);
 };
